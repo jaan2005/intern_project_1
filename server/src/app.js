@@ -25,6 +25,7 @@ app.use('/api', require('./routes/course.routes')); // module 2: courses
 app.use('/api', require('./routes/lesson.routes')); // module 2: lessons + module 3: video upload
 app.use('/api', require('./routes/enrollment.routes')); // module 4: enrollment
 app.use('/api', require('./routes/quiz.routes')); // module 4: quizzes
+app.use('/api', require('./routes/payment.routes')); // module 5: payments + earnings
 
 app.use(notFound);
 app.use(errorHandler);
