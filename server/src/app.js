@@ -28,6 +28,7 @@ app.use('/api', require('./routes/quiz.routes')); // module 4: quizzes
 app.use('/api', require('./routes/payment.routes')); // module 5: payments + earnings
 app.use('/api', require('./routes/certificate.routes')); // module 6: certificates
 app.use('/api', require('./routes/live.routes')); // module 7: live classes
+app.use('/api', require('./routes/admin.routes')); // module 8: admin
 
 app.use(notFound);
 app.use(errorHandler);
