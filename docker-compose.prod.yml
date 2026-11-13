@@ -1,0 +1,38 @@
+# Runs the WHOLE app in containers:  docker compose -f docker-compose.prod.yml up --build
+# Open http://localhost:8080
+# Settings (Stripe, LiveKit, AWS keys) are read from server/.env. The values below override what must differ inside Docker.
+x-server: &server
+  build: ./server
+  env_file: ./server/.env
+  environment: &server-env
+    MONGO_URI: mongodb://mongo:27017/lms
+    REDIS_URL: redis://redis:6379
+    CLIENT_URL: http://localhost:8080
+    PUBLIC_API_URL: http://localhost:8080
+    STORAGE_DIR: /app/storage
+    TMP_DIR: /app/tmp
+  volumes:
+    - media:/app/storage   # converted videos (only used when STORAGE_DRIVER=local)
+    - tmp:/app/tmp         # uploads waiting for the worker; API and worker MUST share this
+  depends_on: [mongo, redis]
+
+services:
+  mongo:
+    image: mongo:7
+    volumes: [mongo_data:/data/db]
+  redis:
+    image: redis:7
+  api:
+    <<: *server
+  worker:
+    <<: *server
+    command: ["node", "src/workers/videoWorker.js"]
+  client:
+    build: ./client
+    ports: ["8080:80"]
+    depends_on: [api]
+
+volumes:
+  mongo_data:
+  media:
+  tmp:
