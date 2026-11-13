@@ -1,0 +1,32 @@
+{
+  "name": "lms-client",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test:ui": "node scripts/run-ui-test.mjs"
+  },
+  "dependencies": {
+    "@livekit/components-react": "^2.6.0",
+    "@livekit/components-styles": "^1.1.4",
+    "@reduxjs/toolkit": "^2.2.7",
+    "hls.js": "^1.5.15",
+    "livekit-client": "^2.5.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-redux": "^9.1.2",
+    "react-router-dom": "^7.18.5"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/react": "^16.0.1",
+    "@testing-library/user-event": "^14.5.2",
+    "@vitejs/plugin-react": "^4.3.1",
+    "jsdom": "^25.0.1",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  }
+}

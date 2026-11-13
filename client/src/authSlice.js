@@ -1,0 +1,24 @@
+import { createSlice } from '@reduxjs/toolkit';
+
+// The login (token + user) is kept in localStorage so a page refresh doesn't log you out.
+const saved = (() => { try { return JSON.parse(localStorage.getItem('lms_auth')) || {}; } catch { return {}; } })();
+
+const authSlice = createSlice({
+  name: 'auth',
+  initialState: { token: saved.token || null, user: saved.user || null },
+  reducers: {
+    setCredentials(state, { payload }) {
+      state.token = payload.token;
+      state.user = payload.user;
+      localStorage.setItem('lms_auth', JSON.stringify(payload));
+    },
+    logout(state) {
+      state.token = null;
+      state.user = null;
+      localStorage.removeItem('lms_auth');
+    },
+  },
+});
+
+export const { setCredentials, logout } = authSlice.actions;
+export default authSlice.reducer;
