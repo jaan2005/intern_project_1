@@ -21,6 +21,8 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok', storage: env.stora
 
 // ---- One line per feature module. Each router defines its own full paths (e.g. /courses/:id/lessons). ----
 app.use('/api/auth', rateLimit({ windowMs: 15 * 60 * 1000, limit: 100, standardHeaders: true, legacyHeaders: false }), require('./routes/auth.routes')); // module 1: auth
+app.use('/api', require('./routes/course.routes')); // module 2: courses
+app.use('/api', require('./routes/lesson.routes')); // module 2: lessons + module 3: video upload
 
 app.use(notFound);
 app.use(errorHandler);
