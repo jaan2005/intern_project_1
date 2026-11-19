@@ -1,0 +1,161 @@
+# CI/CD for FS-04 (Multi-Tenant SaaS Project Management Platform).
+# Workflows must live in the repository root's .github/workflows, so this file points at the FS-04/ folder.
+name: FS-04 CI/CD
+
+on:
+  push:
+    branches: [main]
+    paths: ['FS-04/**', '.github/workflows/fs04-ci.yml']
+  pull_request:
+    paths: ['FS-04/**', '.github/workflows/fs04-ci.yml']
+
+concurrency:
+  group: fs04-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  POSTGRES_HOST: localhost
+  POSTGRES_DB: pm
+  POSTGRES_USER: pm
+  POSTGRES_PASSWORD: pm
+  REDIS_URL: redis://localhost:6379/0
+  DJANGO_SECRET_KEY: ci-only-secret-key-not-used-anywhere-else
+
+jobs:
+  backend:
+    name: Backend tests (Django + PostgreSQL + Redis)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_DB: pm, POSTGRES_USER: pm, POSTGRES_PASSWORD: pm }
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U pm -d pm" --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults:
+      run: { working-directory: FS-04/backend }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: FS-04/backend/requirements.txt
+      - run: pip install -r requirements.txt
+      - name: Django system check
+        run: python manage.py check
+      - name: Migrations are up to date
+        run: python manage.py makemigrations --check --dry-run
+      - name: Unit and API tests (tenant isolation, roles, workflow, billing, webhooks...)
+        run: python manage.py test --noinput --verbosity 1
+      - name: Background jobs end to end (real Celery worker)
+        run: python scripts/e2e_celery.py
+
+  frontend:
+    name: Frontend build and UI tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_DB: pm, POSTGRES_USER: pm, POSTGRES_PASSWORD: pm }
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U pm -d pm" --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: FS-04/backend/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: FS-04/frontend/package-lock.json
+      - name: Start the API (the UI tests talk to the real backend)
+        working-directory: FS-04/backend
+        env: { CELERY_TASK_ALWAYS_EAGER: '1', MEDIA_ROOT: /tmp/media }
+        run: |
+          pip install -r requirements.txt
+          python manage.py migrate --noinput
+          nohup python manage.py runserver 8000 --noreload > /tmp/api.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://localhost:8000/api/health/ && break; sleep 1; done
+      - name: Install, build, test
+        working-directory: FS-04/frontend
+        run: |
+          npm ci
+          npm run build
+          npm run test:ui
+      - name: API log on failure
+        if: failure()
+        run: cat /tmp/api.log
+
+  docker:
+    name: Docker images, compose smoke test and publish
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the whole stack with Docker Compose and check it answers
+        working-directory: FS-04
+        run: |
+          cp .env.example .env
+          sed -i "s/change-me-to-a-long-random-string/$(openssl rand -hex 24)/" .env
+          docker compose up -d --build --wait --wait-timeout 240
+          curl -sf http://localhost:8080/api/health/
+          docker compose exec -T backend python manage.py seed_demo
+          curl -sf -X POST http://localhost:8080/api/auth/login/ -H 'Content-Type: application/json' -d '{"email":"priya@acme.test","password":"Demo@12345"}' | grep -q token
+          curl -sf http://localhost:8080/ | grep -qi '<div id="root">'
+      - name: Compose logs on failure
+        if: failure()
+        working-directory: FS-04
+        run: docker compose logs --tail=200
+      - name: Stop the stack
+        if: always()
+        working-directory: FS-04
+        run: docker compose down -v
+
+      # "Deploy": publish versioned images to GitHub Container Registry, only from the main branch
+      - name: Lower-case owner name for the image path
+        id: owner
+        run: echo "name=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build (and on main, push) the backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: FS-04/backend
+          push: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+          tags: |
+            ghcr.io/${{ steps.owner.outputs.name }}/fs04-backend:latest
+            ghcr.io/${{ steps.owner.outputs.name }}/fs04-backend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build (and on main, push) the frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: FS-04/frontend
+          push: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+          tags: |
+            ghcr.io/${{ steps.owner.outputs.name }}/fs04-frontend:latest
+            ghcr.io/${{ steps.owner.outputs.name }}/fs04-frontend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
